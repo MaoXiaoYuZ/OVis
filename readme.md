@@ -1,16 +1,17 @@
-OVis 是一个基于Open3D的远程点云和人体mesh可视化程序。可以在远程服务器上运行，通过socketio与本地的Open3D可视化程序进行通信，实现远程可视化。
+<h1>OVis: Remote Point Cloud and Human Body Mesh Visualization based on Open3D</h1>
 
+OVis is a program that enables remote visualization of point clouds and human body meshes using Open3D. It can be run on a remote server and communicates with the local Open3D visualization program via socketio.
 
-# 0.安装依赖
+# Environment Configuration (Local)
 ```angular2html
 pip install python-socketio
 pip install "python-socketio[client]"
 pip install numpy
 pip install open3d
 pip install paramiko
+pip instal scipy
 ```
-
-# 0.修改config中下列字段
+Then modify the following fields in config.py:
 ```angular2html
 RemoteIP = '1.2.3.4'
 RemoteUser = 'root'
@@ -20,44 +21,56 @@ RemotePythonImportPath = '/~/anaconda3/envs/myenv/lib/python3.7'
 ```
 
 
-# 1.在本地运行o3d_server.py
+# Environment Configuration (Remote Server)
+```angular2html
+pip install python-socketio
+pip install "python-socketio[client]"
+pip install numpy
+pip instal scipy
+```
+
+
+# 1.Run o3d_server.py on the local machine
 ```angular2html
 python o3d_server.py
 ```
-运行此程序会将ovis.py复制到RemotePythonImportPath下，请确保这不会覆盖你的原有文件。
-这样会打开一个o3d可视化窗口，窗口会监听本地5666端口的请求，并根据请求执行相应的可视化操作
+This will copy ovis.py to RemotePythonImportPath. 
+Make sure this doesn't overwrite any of your existing files. 
+A new Open3D visualization window will open, which listens for requests on port 5666 and performs the corresponding visualization operations.
 
 
-# 2.在远程/本地运行以下命令，连接到o3d_server
+# 2.On the remote/local machine, connect to o3d_server:
 ```angular2html
 from ovis import *
 ```
 
-# 3.可视化点云
+# 3.Visualize point clouds
 ```angular2html
-import numpy as np
 opc(np.random.rand(1000, 3))
-opc(np.random.rand(1000, 3), 0.2, (1, 1, 1), 'pc2')
+opc(np.random.rand(1000, 3), 0.2, (1, 0, 0), 'pc2')
 ```
 
 ![show_pc](./data/show_pc.png)
 
-# 4.可视化smpl人体
+# 4.Visualize SMPL human bodies
 ```angular2html
 osmpl(np.zeros(72), (1, 0, 0), 0.1)
 ```
 
 ![show_smpl_mesh](./data/show_smpl_mesh.png)
 
-# 5.可视化点云视频动画
+# 5.Create animated point cloud visualizations
 ```angular2html
 for i in range(10):
     opc('pc1', np.random.rand(1000, 3))
     owait(0.1)
 ```
 
-# 6.重连和清空
+# 6.Reconnect to o3d_server and clear the visualization
 ```angular2html
 oconnect()
 oclear()
 ```
+
+# 7.import ovis locally
+To import ovis locally, manually copy ovis.py to your local Python import path and set SERVER_IP in ovis.py to 127.0.0.1.

@@ -2,8 +2,14 @@ import numpy as np
 import socketio
 import pickle
 import colorsys
-import torch
 from scipy.spatial.transform import Rotation as R
+
+try:
+    import torch
+except Exception:
+    torch_available = False
+else:
+    torch_available = True
 
 def get_extract_ip():
     import socket
@@ -41,7 +47,7 @@ def opc(*args):
             assert msg['colors'] is None, '参数中只能有一个float变量用于指示pointcloud的colors!'
             msg['colors'] = colors
         else:
-            if torch.is_tensor(arg):
+            if torch_available and torch.is_tensor(arg):
                 arg = arg.data.cpu().numpy()
             arg = np.asarray(arg, dtype=np.float32)
             if arg.size == 3:
@@ -63,7 +69,8 @@ def opc(*args):
         msg['points'] = msg['points'] + msg['trans']
 
     points = msg['points']
-    points = torch.from_numpy(points).unique(dim=0).numpy()
+    if torch_available:
+        points = torch.from_numpy(points).unique(dim=0).numpy()
     points = pickle.dumps(points)
 
     client.emit('add_pc', (msg['id'], points, msg['colors']))
@@ -80,7 +87,7 @@ def osmpl(*args):
             assert msg['colors'] is None, '参数中只能有一个float变量用于指示pointcloud的colors!'
             msg['colors'] = colors
         else:
-            if torch.is_tensor(arg):
+            if torch_available and torch.is_tensor(arg):
                 arg = arg.data.cpu().numpy()
             arg = np.asarray(arg, dtype=np.float32)
             if arg.size == 3:
@@ -101,7 +108,7 @@ def osmpl(*args):
                 assert False, '无法解析参数：' + arg
 
     if msg['id'] is None:
-        print('由于未指定id, omesh使用默认的id:human_mesh!')
+        print('由于未指定id, osmpl使用默认的id:human_mesh!')
         msg['id'] = 'smpl_mesh'
 
     assert msg['pose'] is not None, '必须有一个参数指定pose!'

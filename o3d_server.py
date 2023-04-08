@@ -35,14 +35,13 @@ try:
     from paramiko_util import client
     from config import RemoteIP, RemotePythonImportPath
     import os
-    update_server_ip_in_file('ovis.py', eip)
     sftp_client = client.open_sftp()
     remote_ovis_py_path = os.path.join(RemotePythonImportPath, 'ovis.py').replace('\\', '/')
-    print(f'update the SEVER_IP in ovis.py according to config:{eip}')
+    print(f'update the SEVER_IP in ovis.py to local ip:{eip}')
+    update_server_ip_in_file('ovis.py', eip)
     print(f'upload the ovis.py to the remote server:{remote_ovis_py_path}')
     sftp_client.put('ovis.py', remote_ovis_py_path)
-except Exception as e:
-    print(e)
+except Exception:
     print('fail to connect the remote server!')
 
 
@@ -113,26 +112,6 @@ def add_pc(sid, id, points, colors=None):
         pointcloud.colors = o3d.utility.Vector3dVector(colors)
 
     add_geometry(id, pointcloud)
-
-#shan = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(o3d.io.read_point_cloud('C:\\Users\\maoqh\\Documents\\temp\\shan.pcd'), 0.1)
-#shan = o3d.io.read_triangle_mesh("C:\\Users\\maoqh\\Documents\\temp\\shan.obj")
-
-@sio.event
-def add_obj(sid, id, rt, radius, colors=None):
-    if id in id_to_geometry:
-        m = id_to_geometry[id]
-    else:
-        m = o3d.geometry.TriangleMesh()
-
-    m.vertices = shan.vertices
-    m.triangles = shan.triangles
-
-    m.transform(rt)
-    if colors is not None:
-        m.paint_uniform_color(colors)
-    add_geometry(id, m)
-
-#add_obj(None, 'obj', np.identity(4), 0)
 
 from smpl import SMPL
 import torch
