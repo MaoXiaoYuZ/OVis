@@ -1,4 +1,7 @@
 # Define the path to the text file
+import time
+
+
 def update_server_ip_in_file(file_path, new_ip):
     import re
     # Open the file for reading and store its contents as a string
@@ -86,12 +89,11 @@ def disconnect(sid):
 
 id_to_geometry = {}
 
-def add_geometry(id, geometry):
+def add_geometry(id, geometry, reset_bounding_box=False):
     if id in id_to_geometry:
         vis.update_geometry(geometry)
     else:
-
-        vis.add_geometry(geometry, reset_bounding_box=True)
+        vis.add_geometry(geometry, reset_bounding_box=reset_bounding_box)
         id_to_geometry[id] = geometry
 
 
@@ -139,7 +141,7 @@ def add_coordinate(sid, id, origin, size):
     axis_pcd = id_to_geometry[id] if id in id_to_geometry else \
         o3d.geometry.TriangleMesh.create_coordinate_frame(size=size, origin=origin)
 
-    add_geometry(id, axis_pcd)
+    add_geometry(id, axis_pcd, reset_bounding_box=True)
 
 
 @sio.event
@@ -172,12 +174,66 @@ def add_smpl_mesh(sid, id, pose, beta=None, trans=None, color=None):
         m.paint_uniform_color(color)
     add_geometry(id, m)
 
+@sio.event
+def add_line_set(sid, id, points, lines, color=None):
+    points = pickle.loads(points) if isinstance(points, bytes) else points
+
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(np.asarray(points)),
+        lines=o3d.utility.Vector2iVector(np.array(lines))
+    )
+    if id in id_to_geometry:
+        vis.remove_geometry(id_to_geometry[id], reset_bounding_box=False)
+        del id_to_geometry[id]
+
+    if color is not None:
+        line_set.paint_uniform_color(color)
+
+    add_geometry(id, line_set)
 
 @sio.event
-def rm_all(sid):
-    vis.clear_geometries()
-    id_to_geometry.clear()
-    add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
+def rm_all(sid, geometry_name=None):
+    if geometry_name is None:
+        vis.clear_geometries()
+        id_to_geometry.clear()
+        add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
+    else:
+        vis.remove_geometry(id_to_geometry[geometry_name], reset_bounding_box=False)
+        del id_to_geometry[geometry_name]
+
+@sio.event
+def shapshot(sid, dirname):
+    if os.path.exists(dirname):
+        #read all geometry from the dirname and add them to vis
+        for f in os.listdir(dirname):
+            if f.endswith('.ply'):
+                if f.startswith('pc_'):
+                    id = f[3:-4]
+                    pc = o3d.io.read_point_cloud(os.path.join(dirname, f))
+                    add_geometry(id, pc)
+                elif f.startswith('mesh_'):
+                    id = f[5:-4]
+                    mesh = o3d.io.read_triangle_mesh(os.path.join(dirname, f))
+                    add_geometry(id, mesh)
+                elif f.startswith('lineset_'):
+                    id = f[8:-4]
+                    lineset = o3d.io.read_line_set(os.path.join(dirname, f))
+                    add_geometry(id, lineset)
+        print('snapshot loaded from', dirname)
+        return
+
+    dirname = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) + '_' + dirname
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+    vis.capture_screen_image(os.path.join(dirname, 'screenshot.png'))
+    for id, geometry in id_to_geometry.items():
+        if isinstance(geometry, o3d.geometry.PointCloud):
+            o3d.io.write_point_cloud(os.path.join(dirname, f'pc_{id}.ply'), geometry)
+        elif isinstance(geometry, o3d.geometry.TriangleMesh):
+            o3d.io.write_triangle_mesh(os.path.join(dirname, f'mesh_{id}.ply'), geometry)
+        elif isinstance(geometry, o3d.geometry.LineSet):
+            o3d.io.write_line_set(os.path.join(dirname, f'lineset_{id}.ply'), geometry)
+    print('snapshot saved to', dirname)
 
 def affine(X, matrix):
     res = np.concatenate((X, np.ones((*X.shape[:-1], 1))), axis=-1).T
@@ -208,8 +264,6 @@ async def vis_update():
         vis.poll_events()
         vis.update_renderer()
         await asyncio.sleep(0.01)
-
-
 
 
 add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)

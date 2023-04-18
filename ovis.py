@@ -23,15 +23,19 @@ def get_extract_ip():
         st.close()
     return IP
 
-SEVER_IP = '1.1.1.1'
+SEVER_IP = '172.18.69.97'
 
-def oconnect():
+def oconnect(ip=None):
     global client
     client = socketio.Client()
-    ip = SEVER_IP
+    if ip is None:
+        ip = SEVER_IP
     print(f'正在连接客户端：{ip}')
-    client.connect(f'http://{ip}:5666')
-    print('已连接！')
+    try:
+        client.connect(f'http://{ip}:5666')
+        print('已连接！')
+    except Exception:
+        print('连接失败！')
 
 oconnect()
 
@@ -74,6 +78,56 @@ def opc(*args):
     points = pickle.dumps(points)
 
     client.emit('add_pc', (msg['id'], points, msg['colors']))
+
+def oshapshot(dirname):
+    global client
+    client.emit('shapshot', (dirname, ))
+
+def opc_pair(*args):
+    global client
+    msg = {'points': None, 'points2': None, 'lines': None, 'colors': None, 'id': None}
+    for arg in args:
+        if isinstance(arg, str):
+            assert msg['id'] is None, '参数中只能有一个字符串变量用于指示pointcloud的id!'
+            msg['id'] = arg
+        elif isinstance(arg, float):
+            colors = colorsys.hsv_to_rgb(arg, 1, 1)
+            assert msg['colors'] is None, '参数中只能有一个float变量用于指示pointcloud的colors!'
+            msg['colors'] = colors
+        else:
+            if torch_available and torch.is_tensor(arg):
+                arg = arg.data.cpu().numpy()
+            arg = np.asarray(arg, dtype=np.float32)
+            if len(arg.shape) == 2 and arg.shape[1] == 2:
+                assert msg['lines'] is None, '参数中只能有一个shape为(*, 2)数组类型用于指示pointcloud的lines!'
+                msg['lines'] = arg
+            else:
+                assert len(arg.shape) == 2 and arg.shape[1] == 3, '参数points的shape应为(*, 3)'
+                if msg['points'] is None:
+                    msg['points'] = arg
+                    print('pc1 shape:', arg.shape)
+                else:
+                    assert msg['points2'] is None, '参数中只能有两个shape为(*, 3)数组类型用于指示pointcloud的points!'
+                    msg['points2'] = arg
+                    print('pc2 shape:', arg.shape)
+
+    if msg['id'] is None:
+        print('由于未指定id, opc使用默认的id:pc_pair!')
+        msg['id'] = 'pc_pair'
+
+    assert msg['points'] is not None and msg['points2'] is not None, '必须有两个参数指定points!'
+    if len(msg['points']) != len(msg['points2']):
+        assert msg['lines'] is not None, '未指定lines!'
+
+    points = np.vstack((msg['points'], msg['points2']))
+    points = pickle.dumps(points)
+    if msg['lines'] is None:
+        lines = np.stack((np.arange(len(msg['points'])), np.arange(len(msg['points'])) + len(msg['points'])), axis=1)
+    else:
+        lines = msg['lines']
+        lines[:, 1] += len(msg['points'])
+    client.emit('add_line_set', (msg['id'], points, lines.tolist(), msg['colors']))
+
 
 def osmpl(*args):
     global client
@@ -125,14 +179,19 @@ def owait(delay=0, timeout=5):
         time.sleep(delay)
 
 
-def oclear():
+def oclear(geometry_name=None):
     global client
-    client.emit('rm_all')
+    if geometry_name is None:
+        client.emit('rm_all')
+    else:
+        client.emit('rm_all', (geometry_name, ))
 
 if __name__ == '__main__':
     #opc('pc', np.random.randn(1000, 3), (0, 1, 0), 0.1)
-    opc(np.zeros((200, 3)), 'pc1')
-    osmpl(np.zeros(72, ))
+    oconnect('127.0.0.1')
+    opc_pair(np.random.rand(34, 3), np.random.rand(40, 3), 0.1, np.array([[0, 1], [3, 2]]))
+    # opc(np.zeros((200, 3)), 'pc1')
+    # osmpl(np.zeros(72, ))
     owait()
 
 
