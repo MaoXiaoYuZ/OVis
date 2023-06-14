@@ -23,7 +23,7 @@ def get_extract_ip():
         st.close()
     return IP
 
-SEVER_IP = '1.1.1.1'
+SEVER_IP = '127.0.0.1'
 
 def oconnect():
     global client
