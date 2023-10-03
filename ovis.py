@@ -23,7 +23,7 @@ def get_extract_ip():
         st.close()
     return IP
 
-SEVER_IP = '172.18.69.97'
+SEVER_IP = '172.18.70.38'
 
 def oconnect(ip=None):
     global client
@@ -58,6 +58,11 @@ def opc(*args):
                 trans = arg.reshape(1, 3)
                 assert msg['trans'] is None, '参数中只能有一个长度为3的数组类型用于指示pointcloud的trans!'
                 msg['trans'] = trans
+            elif arg.size == 4:
+                assert msg['colors'] is None, '参数中只能有一个长度为4的数组类型用于指示pointcloud的colors!'
+                if np.any(arg > 1):
+                    arg = arg / 255
+                msg['colors'] = arg.reshape(4)[:3].tolist()
             else:
                 assert len(arg.shape) == 2 and arg.shape[1] == 3, '参数points的shape应为(*, 3)'
                 assert msg['points'] is None, '参数中只能有一个shape为(*, 3)数组类型用于指示pointcloud的points!'
@@ -148,6 +153,11 @@ def osmpl(*args):
                 trans = arg.flatten().tolist()
                 assert msg['trans'] is None, '参数中只能有一个长度为3的数组类型用于指示smpl mesh的trans!'
                 msg['trans'] = trans
+            elif arg.size == 4:
+                assert msg['colors'] is None, '参数中只能有一个长度为4的数组类型用于指示pointcloud的colors!'
+                if np.any(arg > 1):
+                    arg = arg / 255
+                msg['colors'] = arg.reshape(4)[:3].tolist()
             elif arg.size == 10:
                 beta = arg.flatten().tolist()
                 assert msg['beta'] is None, '参数中只能有一个长度为10的数组类型用于指示smpl mesh的beta!'

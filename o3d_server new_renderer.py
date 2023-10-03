@@ -55,16 +55,11 @@ import socketio
 sio = socketio.AsyncServer(async_mode='tornado')
 
 import open3d as o3d
-import asyncio
-vis = o3d.visualization.Visualizer()
-vis.create_window(width=1024, height=1024)
-
 import numpy as np
+import asyncio
 
-opt = vis.get_render_option()
-opt.background_color = np.asarray([43., 43., 43.]) / 255.
-opt.background_color = np.asarray([255., 255., 255.]) / 255.
-vis.get_render_option().point_size = 15.
+from renderer import O3DRenderer, gui, color_by_z, color_points_by_z
+vis = O3DRenderer(True)
 
 
 @sio.on('*')
@@ -91,18 +86,24 @@ def disconnect(sid):
 
 id_to_geometry = {}
 
-def add_geometry(id, geometry, reset_bounding_box=True):
+def add_geometry(id, geometry, mat=None):
     if id in id_to_geometry:
-        vis.update_geometry(geometry)
+        vis.remove_geometry(id)
+        vis.add_geometry(id, geometry, mat)
     else:
-        vis.add_geometry(geometry, reset_bounding_box=reset_bounding_box)
+        vis.add_geometry(id, geometry, mat)
         id_to_geometry[id] = geometry
 
+bg = np.loadtxt(r"C:\Users\maoqh\Documents\WeChat Files\wxid_me2lgtpuhuse22\FileStorage\File\2023-08\1557335996649466_1.txt", dtype=np.float32)
 
 @sio.event
-def add_pc(sid, id, points, colors=None):
+def add_pc(sid, id, points, colors=None, point_size=5):
     points = pickle.loads(points) if isinstance(points, bytes) else points
     print(f'Recive pc:{len(points)}, id:{id} from sid:{sid}')
+
+    if id == 'bg':
+        points = bg[:, :3]
+
     if id in id_to_geometry:
         pointcloud = id_to_geometry[id]
     else:
@@ -114,8 +115,19 @@ def add_pc(sid, id, points, colors=None):
         if colors.shape == (1, 3) or colors.shape == (3, ):
             colors = colors.reshape(1, 3).repeat(len(points), axis=0)
         pointcloud.colors = o3d.utility.Vector3dVector(colors)
+    else:
+        pointcloud.colors = o3d.utility.Vector3dVector(color_points_by_z(points))
+    
+    import open3d.visualization.rendering as rendering
+    mat = rendering.MaterialRecord()
+    mat.shader = "defaultUnlit"
+    mat.point_size = point_size * vis.window.scaling
 
-    add_geometry(id, pointcloud)
+    add_geometry(id, pointcloud, mat)
+
+    # vis.remove_geometry(id)
+    # vis.add_sphere_pc(id, points, colors)
+    # id_to_geometry[id] = 'pad'
 
 from smpl import SMPL
 import torch
@@ -136,6 +148,7 @@ def add_smpl_pc(sid, id, pose, beta=None, trans=None):
     v = smpl(torch.from_numpy(np.array(pose)).float().view(1, 72),
              torch.from_numpy(np.array(beta)).float().view(1, 10)).squeeze()
     v += torch.from_numpy(np.array(trans)).float().view(1, 3)
+    
     add_pc(sid, id, v.tolist(), None)
 
 @sio.event
@@ -143,7 +156,7 @@ def add_coordinate(sid, id, origin, size):
     axis_pcd = id_to_geometry[id] if id in id_to_geometry else \
         o3d.geometry.TriangleMesh.create_coordinate_frame(size=size, origin=origin)
 
-    add_geometry(id, axis_pcd, reset_bounding_box=True)
+    add_geometry(id, axis_pcd)
 
 
 @sio.event
@@ -185,7 +198,7 @@ def add_line_set(sid, id, points, lines, color=None):
         lines=o3d.utility.Vector2iVector(np.array(lines))
     )
     if id in id_to_geometry:
-        vis.remove_geometry(id_to_geometry[id], reset_bounding_box=False)
+        vis.remove_geometry(id)
         del id_to_geometry[id]
 
     if color is not None:
@@ -196,15 +209,17 @@ def add_line_set(sid, id, points, lines, color=None):
 @sio.event
 def rm_all(sid, geometry_name=None):
     if geometry_name is None:
-        vis.clear_geometries()
+        for id in id_to_geometry:
+            vis.remove_geometry(id)
         id_to_geometry.clear()
-        add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
+        # add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
     else:
-        vis.remove_geometry(id_to_geometry[geometry_name], reset_bounding_box=False)
+        vis.remove_geometry(geometry_name)
         del id_to_geometry[geometry_name]
 
 @sio.event
 def shapshot(sid, dirname):
+    point_size = 10
     if os.path.exists(dirname):
         #read all geometry from the dirname and add them to vis
         for f in os.listdir(dirname):
@@ -212,7 +227,11 @@ def shapshot(sid, dirname):
                 if f.startswith('pc_'):
                     id = f[3:-4]
                     pc = o3d.io.read_point_cloud(os.path.join(dirname, f))
-                    add_geometry(id, pc)
+                    import open3d.visualization.rendering as rendering
+                    mat = rendering.MaterialRecord()
+                    mat.shader = "defaultUnlit"
+                    mat.point_size = point_size * vis.window.scaling
+                    add_geometry(id, pc, mat)
                 elif f.startswith('mesh_'):
                     id = f[5:-4]
                     mesh = o3d.io.read_triangle_mesh(os.path.join(dirname, f))
@@ -227,7 +246,7 @@ def shapshot(sid, dirname):
     dirname = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) + '_' + dirname
     if not os.path.exists(dirname):
         os.makedirs(dirname)
-    vis.capture_screen_image(os.path.join(dirname, 'screenshot.png'))
+    vis.save_image(os.path.join(dirname, 'screenshot.png'))
     for id, geometry in id_to_geometry.items():
         if isinstance(geometry, o3d.geometry.PointCloud):
             o3d.io.write_point_cloud(os.path.join(dirname, f'pc_{id}.ply'), geometry)
@@ -262,14 +281,17 @@ def add_smpl_mesh_w_rt(sid, id, pose, rt):
 
 
 async def vis_update():
-    while(True):
-        vis.poll_events()
-        vis.update_renderer()
+    app = gui.Application.instance
+    while(app.run_one_tick()):
         await asyncio.sleep(0.01)
+    app.quit()
 
 
-add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
-#addoc_pc(None, 'pc', np.random.rand(100, 3))
+# add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
+# add_pc(None, 'pc', np.random.rand(1000, 3), point_size=10)
+# add_pc(None, 'pc', data[:, :3], point_size=10)
+
+# shapshot(None, r"C:\Users\maoqh\PycharmProjects\OVis\aaai23\4755_f2\2023-08-14-13-59-10_aaai23_compare_4755")
 
 import tornado
 app = tornado.web.Application(
