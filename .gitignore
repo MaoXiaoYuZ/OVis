@@ -1,1 +1,12 @@
 .idea/deployment.xml
+**/__pycache__
+grpc_hello/greeter_client.py
+grpc_hello/greeter_server.py
+grpc_hello/hello_pb2_grpc.py
+grpc_hello/hello_pb2.py
+grpc_hello/hello_pb2.pyi
+grpc_hello/hello.proto
+data/smpl_T_pose.ply
+test2.py
+test3.py
+test3.py.lprof

@@ -1,5 +1,6 @@
 # Define the path to the text file
 import time
+from typing import List, Tuple
 
 
 def update_server_ip_in_file(file_path, new_ip):
@@ -62,9 +63,9 @@ vis.create_window(width=1024, height=1024)
 import numpy as np
 
 opt = vis.get_render_option()
-opt.background_color = np.asarray([43., 43., 43.]) / 255.
+# opt.background_color = np.asarray([43., 43., 43.]) / 255.
 opt.background_color = np.asarray([255., 255., 255.]) / 255.
-vis.get_render_option().point_size = 15.
+# vis.get_render_option().point_size = 15.
 
 
 @sio.on('*')
@@ -145,13 +146,14 @@ def add_coordinate(sid, id, origin, size):
 
     add_geometry(id, axis_pcd, reset_bounding_box=True)
 
-
 @sio.event
 def add_smpl_mesh(sid, id, pose, beta=None, trans=None, color=None):
     if beta is None:
         beta = torch.zeros((10,))
     if trans is None:
         trans = torch.zeros((1, 3))
+    from time import time
+    t0 = time()
     v = smpl(torch.from_numpy(np.array(pose)).float().view(1, 72),
              torch.from_numpy(np.array(beta)).float().view(1, 10)).squeeze()
     v += torch.from_numpy(np.array(trans)).float().view(1, 3)
@@ -161,7 +163,7 @@ def add_smpl_mesh(sid, id, pose, beta=None, trans=None, color=None):
     else:
         m = o3d.geometry.TriangleMesh()
 
-
+    v = v.numpy().astype('float64') #一行代码提速1000倍
     m.vertices = o3d.utility.Vector3dVector(v)
     m.triangles = o3d.utility.Vector3iVector(face_index)
     m.compute_vertex_normals()
@@ -175,6 +177,7 @@ def add_smpl_mesh(sid, id, pose, beta=None, trans=None, color=None):
             color = np.random.rand(3)
         m.paint_uniform_color(color)
     add_geometry(id, m)
+
 
 @sio.event
 def add_line_set(sid, id, points, lines, color=None):
@@ -260,15 +263,94 @@ def add_smpl_mesh_w_rt(sid, id, pose, rt):
     m.compute_vertex_normals()
     add_geometry(id, m)
 
+@sio.event
+def draw_bbox_3d(sid, id, 
+                       bbox_3d,
+                       bbox_color: List[float] = (0, 1, 0),
+                       rot_axis: int = 2,
+                       center_mode: str = 'lidar_bottom') -> None:
+        """Draw bbox on visualizer and change the color of points inside
+        bbox3d.
+
+        Args:
+            bbox_3d (:obj:`BaseInstance3DBoxes`): 3D bbox
+                (x, y, z, x_size, y_size, z_size, yaw) to visualize.
+            bbox_color (Tuple[float]): The color of 3D bboxes.
+                Defaults to (0, 1, 0).
+            points_in_box_color (Tuple[float]): The color of points inside 3D
+                bboxes. Defaults to (1, 0, 0).
+            rot_axis (int): Rotation axis of 3D bboxes. Defaults to 2.
+            center_mode (str): Indicates the center of bbox is bottom center or
+                gravity center. Available mode
+                ['lidar_bottom', 'camera_bottom']. Defaults to 'lidar_bottom'.
+            mode (str): Indicates the type of input points, available mode
+                ['xyz', 'xyzrgb']. Defaults to 'xyz'.
+        """
+
+        # convert bboxes to numpy dtype
+        bbox_3d = torch.from_numpy(np.array(bbox_3d)).flatten()
+
+        assert bbox_3d.numel() == 7, 'ERROR:The size of bbox_3d must be 7!'
+
+        # in_box_color = np.array(points_in_box_color)
+
+        # for i in range(len(bbox_3d)):
+        center = bbox_3d[0:3]
+        dim = bbox_3d[3:6]
+        yaw = np.zeros(3)
+        yaw[rot_axis] = bbox_3d[6]
+        rot_mat = o3d.geometry.get_rotation_matrix_from_xyz(yaw)
+
+        if center_mode == 'lidar_bottom':
+            # bottom center to gravity center
+            center[rot_axis] += dim[rot_axis] / 2
+        elif center_mode == 'camera_bottom':
+            # bottom center to gravity center
+            center[rot_axis] -= dim[rot_axis] / 2
+        box3d = o3d.geometry.OrientedBoundingBox(center, rot_mat, dim)
+
+        line_set = o3d.geometry.LineSet.create_from_oriented_bounding_box(box3d)
+        line_set.paint_uniform_color(np.array(bbox_color))
+        # draw bboxes on visualizer
+
+        if id in id_to_geometry:
+            vis.remove_geometry(id_to_geometry[id], reset_bounding_box=False)
+            del id_to_geometry[id]
+
+        add_geometry(id, line_set, reset_bounding_box=False)
+
+        #     # change the color of points which are in box
+        #     if self.pcd is not None and mode == 'xyz':
+        #         indices = box3d.get_point_indices_within_bounding_box(
+        #             self.pcd.points)
+        #         self.points_colors[indices] = np.array(bbox_color[i]) / 255.
+
+        # # update points colors
+        # if self.pcd is not None:
+        #     self.pcd.colors = o3d.utility.Vector3dVector(self.points_colors)
+        #     self.o3d_vis.update_geometry(self.pcd)
+
+
+# client.call("draw_bbox_3d", ('test', [ 14.7600,  -1.1046,  -1.5370,   3.7431,   1.5425,   1.4897,  -0.3121]))
 
 async def vis_update():
+    from time import time
+
     while(True):
+        # t0 = time()
+        # add_smpl_mesh(None, 'smpl', np.random.rand(72))
         vis.poll_events()
         vis.update_renderer()
-        await asyncio.sleep(0.01)
+
+        # delta_t = time() - t0
+        # print(f"{1/(delta_t):.3f}HZ")
+
+        await asyncio.sleep(0)
+        
 
 
-add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
+
+#add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
 #addoc_pc(None, 'pc', np.random.rand(100, 3))
 
 import tornado

@@ -1,0 +1,14 @@
+syntax = "proto3";
+// The greeting service definition.
+// !python -m grpc_tools.protoc -I. --python_out=. --pyi_out=. --grpc_python_out=. hello.proto
+service OService {
+  rpc Ask (ORequest) returns (OReply) {}
+}
+
+message ORequest {
+  bytes pkl = 1;
+}
+
+message OReply {
+  bytes pkl = 1;
+}
