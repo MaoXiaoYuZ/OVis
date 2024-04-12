@@ -1,5 +1,6 @@
 .idea/deployment.xml
 **/__pycache__
+*.lprof
 grpc_hello/greeter_client.py
 grpc_hello/greeter_server.py
 grpc_hello/hello_pb2_grpc.py

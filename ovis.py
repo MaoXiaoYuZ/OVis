@@ -1,8 +1,107 @@
+import sys
 import numpy as np
-import socketio
 import pickle
 import colorsys
+import os
 from scipy.spatial.transform import Rotation as R
+
+
+import pickle
+import numpy as np
+
+#init_ogrpc------------------------------------------------
+
+
+def init_ogrpc():
+    #ogrpc.proto
+    ogrpc_proto = \
+"""
+syntax = "proto3";
+
+service OService {
+  rpc Ask (ORequest) returns (OReply) {}
+}
+
+message ORequest {
+  bytes pkl = 1;
+}
+
+message OReply {
+  bytes pkl = 1;
+}
+"""
+    if os.path.exists('.ovis'):
+        try:
+            import ogrpc_pb2
+            import ogrpc_pb2_grpc
+        except Exception:
+            pass
+        else:
+            sys.path.append('.ovis')
+            return
+
+    os.makedirs('.ovis', exist_ok=True)
+
+    with open('.ovis/ogrpc.proto', 'w', encoding='utf-8') as file:
+        file.write(ogrpc_proto)
+
+    import subprocess  
+  
+    command = [  
+        'python', '-m', 'grpc_tools.protoc',   
+        '-I.ovis', '--python_out=.ovis', '--pyi_out=.ovis', '--grpc_python_out=.ovis', '.ovis/ogrpc.proto'  
+    ]  
+    
+    subprocess.run(command, check=True)
+    sys.path.append('.ovis')
+
+
+init_ogrpc()
+import grpc
+import ogrpc_pb2
+import ogrpc_pb2_grpc
+
+
+#oclient-----------------------------------------
+
+def oconnect(url):
+    global channel
+    channel = grpc.insecure_channel(url)
+
+# @profile
+def oask(request_obj):
+    global channel
+    stub = ogrpc_pb2_grpc.OServiceStub(channel)
+    response = stub.Ask(ogrpc_pb2.ORequest(pkl=pickle.dumps(request_obj)))
+    # return np.frombuffer(response.pkl, dtype='float16').reshape(100000, 3)
+    return pickle.loads(response.pkl)
+
+def oclose():
+    global channel
+    if channel:
+        channel.close()
+        channel = None
+
+
+def oconnect(url):
+    global channel
+    channel = grpc.insecure_channel(url)
+
+# @profile
+def oask(request_obj):
+    global channel
+    stub = ogrpc_pb2_grpc.OServiceStub(channel)
+    response = stub.Ask(ogrpc_pb2.ORequest(pkl=pickle.dumps(request_obj)))
+    # return np.frombuffer(response.pkl, dtype='float16').reshape(100000, 3)
+    return pickle.loads(response.pkl)
+
+def oclose():
+    global channel
+    if channel:
+        channel.close()
+        channel = None
+
+#wrapper for o3d server-------------------------------------------
 
 try:
     import torch
@@ -10,34 +109,6 @@ except Exception:
     torch_available = False
 else:
     torch_available = True
-
-def get_extract_ip():
-    import socket
-    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        st.connect(('10.255.255.255', 1))
-        IP = st.getsockname()[0]
-    except Exception:
-        raise Exception('未知错误，无法自动获取公网ip！')
-    finally:
-        st.close()
-    return IP
-
-SEVER_IP = '127.0.0.1'
-
-def oconnect(ip=None):
-    global client
-    client = socketio.Client()
-    if ip is None:
-        ip = SEVER_IP
-    print(f'正在连接客户端：{ip}')
-    try:
-        client.connect(f'http://{ip}:5666')
-        print('已连接！')
-    except Exception:
-        print('连接失败！')
-
-oconnect()
 
 def opc(*args):
     global client
@@ -76,13 +147,15 @@ def opc(*args):
 
     if msg['trans'] is not None:
         msg['points'] = msg['points'] + msg['trans']
+    
+    msg.pop('trans')
 
     points = msg['points']
-    if torch_available:
-        points = torch.from_numpy(points).unique(dim=0).numpy()
-    points = pickle.dumps(points)
+    # if torch_available:
+    #     points = torch.from_numpy(points).unique(dim=0).numpy()
+    # points = pickle.dumps(points)
 
-    client.emit('add_pc', (msg['id'], points, msg['colors']))
+    oask({'func':'add_pc', 'sid': '', **msg})
 
 def oshapshot(dirname):
     global client
@@ -176,14 +249,14 @@ def osmpl(*args):
         msg['id'] = 'smpl_mesh'
 
     assert msg['pose'] is not None, '必须有一个参数指定pose!'
-
-    client.emit('add_smpl_mesh', (msg['id'], msg['pose'], msg['beta'], msg['trans'], msg['colors']))
+    
+    oask({'func':'add_smpl_mesh', 'sid': '', **msg})
 
 
 def owait(delay=0, timeout=5):
     import time
     t1 = time.time()
-    client.call('empty_event', ('', ), timeout=timeout)
+    # client.call('wait', ('', ), timeout=timeout)
     delay -= time.time() - t1
     if delay > 0:
         time.sleep(delay)
@@ -192,16 +265,25 @@ def owait(delay=0, timeout=5):
 def oclear(geometry_name=None):
     global client
     if geometry_name is None:
-        client.emit('rm_all')
+        oask({'func':'rm_all', 'sid': ''})
     else:
-        client.emit('rm_all', (geometry_name, ))
+        oask({'func':'rm_all', 'sid': '', 'geometry_name': geometry_name})
+
+# @profile
+def test():
+    from time import time
+    oconnect("localhost:50051")
+    oclear()
+    for i in range(10):
+        t0 = time()
+        #opc(np.random.rand(10000, 3), 'pc1')
+        #osmpl(np.random.rand(72), 'smpl')
+        #owait(max(0, 0.01-(time()-t0)))
+        osmpl(np.random.rand(72), 'smpl')
+    oclose()
+
 
 if __name__ == '__main__':
-    #opc('pc', np.random.randn(1000, 3), (0, 1, 0), 0.1)
-    oconnect('127.0.0.1')
-    opc_pair(np.random.rand(34, 3), np.random.rand(40, 3), 0.1, np.array([[0, 1], [3, 2]]))
-    # opc(np.zeros((200, 3)), 'pc1')
-    # osmpl(np.zeros(72, ))
-    owait()
+    test()
 
 
