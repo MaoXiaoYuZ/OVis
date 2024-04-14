@@ -12,9 +12,9 @@ import ogrpc_pb2_grpc
 class OService(ogrpc_pb2_grpc.OServiceServicer):
     def Ask(self, request, context):
         request_obj = pickle.loads(request.pkl)
-        reply_obj = {'reply': "You Ask me: %s!" % str(request_obj)}
-        import numpy as np
-        reply_obj = np.random.rand(100000, 3).astype('float16')
+        reply_obj = {'reply': "You Ask me!"}
+        # import numpy as np
+        # reply_obj = np.random.rand(100000, 3).astype('float16')
         return ogrpc_pb2.OReply(pkl=pickle.dumps(reply_obj))
         # return ogrpc_pb2.OReply(pkl=reply_obj.tobytes())
 

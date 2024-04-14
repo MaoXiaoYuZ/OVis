@@ -27,13 +27,13 @@ def oclose():
         channel.close()
         channel = None
 
-# @profile
+@profile
 def test():
+    oconnect("localhost:50051")
     for i in range(10):
-        oconnect("localhost:50051")
-        response = oask('hello?')
+        response = oask(np.random.rand(4, 256, 3))
         print(response.shape)
-        oclose()
+    oclose()
 
 if __name__ == "__main__":
     logging.basicConfig()

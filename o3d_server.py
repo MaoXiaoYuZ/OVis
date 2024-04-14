@@ -3,6 +3,7 @@ import sys
 import threading
 import os
 from typing import List, Tuple
+from time import time, sleep, localtime, strftime
 
 
 def get_extract_ip():
@@ -42,9 +43,11 @@ def add_geometry(id, geometry, reset_bounding_box=True):
     if id in id_to_geometry:
         vis.update_geometry(geometry)
     else:
-        vis.add_geometry(geometry, reset_bounding_box=reset_bounding_box)
+        vis.add_geometry(geometry, reset_bounding_box=False)
         id_to_geometry[id] = geometry
 
+def focus(sid):
+    vis.reset_view_point(True)
 
 def add_pc(sid, id, points, colors=None):
     print(f'Recive pc:{len(points)}, id:{id} from sid:{sid}')
@@ -53,7 +56,7 @@ def add_pc(sid, id, points, colors=None):
     else:
         pointcloud = o3d.geometry.PointCloud()
 
-    pointcloud.points = o3d.utility.Vector3dVector(points)
+    pointcloud.points = o3d.utility.Vector3dVector(np.asarray(points).astype('float64'))
     if colors is not None:
         colors = np.array(colors)
         if colors.shape == (1, 3) or colors.shape == (3, ):
@@ -86,7 +89,7 @@ def add_coordinate(sid, id, origin, size):
     axis_pcd = id_to_geometry[id] if id in id_to_geometry else \
         o3d.geometry.TriangleMesh.create_coordinate_frame(size=size, origin=origin)
 
-    add_geometry(id, axis_pcd, reset_bounding_box=True)
+    add_geometry(id, axis_pcd, reset_bounding_box=False)
 
 def add_smpl_mesh(sid, id, pose, beta=None, trans=None, colors=None):
     if beta is None:
@@ -166,7 +169,7 @@ def shapshot(sid, dirname):
         print('snapshot loaded from', dirname)
         return
 
-    dirname = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) + '_' + dirname
+    dirname = strftime("%Y-%m-%d-%H-%M-%S", localtime()) + '_' + dirname
     if not os.path.exists(dirname):
         os.makedirs(dirname)
     vis.capture_screen_image(os.path.join(dirname, 'screenshot.png'))
@@ -284,7 +287,11 @@ class OService(ogrpc_pb2_grpc.OServiceServicer):
     def Ask(self, request, context):
         global global_events_quene
         kwargs = pickle.loads(request.pkl)
-        global_events_quene.put(kwargs)
+        if kwargs['func'] == 'flash':
+            while not global_events_quene.empty():
+                sleep(0.001)
+        else:
+            global_events_quene.put(kwargs)
         return ogrpc_pb2.OReply(pkl=pickle.dumps(''))
 
 def serve():
@@ -301,12 +308,15 @@ server_thread = threading.Thread(target=serve)
 server_thread.start()  
 
 
+# @profile
 def vis_update():
-    from time import time, sleep
-
+    frame_i = 0
     while(True):
+        frame_i += 1
         t0 = time()
+        flag_poll_events = False
         while not global_events_quene.empty():
+            flag_poll_events = True
             kwargs = global_events_quene.get()
             try:
                 func = eval(kwargs.pop('func'))
@@ -315,12 +325,15 @@ def vis_update():
                 import traceback
                 traceback.print_exc()
             
-            break #一次只执行一个
-
-        vis.poll_events()
+            # break #一次只执行一个
+        
+        if flag_poll_events or frame_i % 5 == 0:
+            vis.poll_events()
         vis.update_renderer()
         
         duration_t = time() - t0
+        if duration_t > 0 and 1 / duration_t < 50:
+            print(f"{1/duration_t:.2f}HZ({duration_t:.3f}s)")
         delta_t = 0.01 - duration_t
         if delta_t > 0:
             sleep(delta_t)

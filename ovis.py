@@ -124,7 +124,7 @@ def opc(*args):
         else:
             if torch_available and torch.is_tensor(arg):
                 arg = arg.data.cpu().numpy()
-            arg = np.asarray(arg, dtype=np.float32)
+            arg = np.asarray(arg, dtype=np.float16)
             if arg.size == 3:
                 trans = arg.reshape(1, 3)
                 assert msg['trans'] is None, '参数中只能有一个长度为3的数组类型用于指示pointcloud的trans!'
@@ -253,33 +253,35 @@ def osmpl(*args):
     oask({'func':'add_smpl_mesh', 'sid': '', **msg})
 
 
-def owait(delay=0, timeout=5):
+def owait(delay=0):
     import time
     t1 = time.time()
-    # client.call('wait', ('', ), timeout=timeout)
+    oask({'func':'flash'})
     delay -= time.time() - t1
     if delay > 0:
         time.sleep(delay)
 
 
 def oclear(geometry_name=None):
-    global client
     if geometry_name is None:
         oask({'func':'rm_all', 'sid': ''})
     else:
         oask({'func':'rm_all', 'sid': '', 'geometry_name': geometry_name})
 
+def ofocus():
+    oask({'func':'focus', 'sid': ''})
+
 # @profile
 def test():
     from time import time
     oconnect("localhost:50051")
-    oclear()
-    for i in range(10):
-        t0 = time()
-        #opc(np.random.rand(10000, 3), 'pc1')
-        #osmpl(np.random.rand(72), 'smpl')
-        #owait(max(0, 0.01-(time()-t0)))
+    for i in range(30):
+        #opc(np.random.rand(10, 3), 'pc1')
+        # oask({'pc': np.random.rand(10, 3)})
+        # oask({'pc': np.random.rand(1, 3)})
         osmpl(np.random.rand(72), 'smpl')
+        owait()
+        #osmpl(np.random.rand(72), 'smpl')
     oclose()
 
 
