@@ -19,6 +19,11 @@ class OServiceStub(object):
                 request_serializer=ogrpc__pb2.ORequest.SerializeToString,
                 response_deserializer=ogrpc__pb2.OReply.FromString,
                 )
+        self.Sync = channel.unary_unary(
+                '/OService/Sync',
+                request_serializer=ogrpc__pb2.ORequest.SerializeToString,
+                response_deserializer=ogrpc__pb2.OReply.FromString,
+                )
 
 
 class OServiceServicer(object):
@@ -30,11 +35,22 @@ class OServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Sync(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_OServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Ask': grpc.unary_unary_rpc_method_handler(
                     servicer.Ask,
+                    request_deserializer=ogrpc__pb2.ORequest.FromString,
+                    response_serializer=ogrpc__pb2.OReply.SerializeToString,
+            ),
+            'Sync': grpc.unary_unary_rpc_method_handler(
+                    servicer.Sync,
                     request_deserializer=ogrpc__pb2.ORequest.FromString,
                     response_serializer=ogrpc__pb2.OReply.SerializeToString,
             ),
@@ -60,6 +76,23 @@ class OService(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/OService/Ask',
+            ogrpc__pb2.ORequest.SerializeToString,
+            ogrpc__pb2.OReply.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def Sync(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/OService/Sync',
             ogrpc__pb2.ORequest.SerializeToString,
             ogrpc__pb2.OReply.FromString,
             options, channel_credentials,

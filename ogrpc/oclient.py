@@ -29,7 +29,8 @@ def oclose():
 
 @profile
 def test():
-    oconnect("localhost:50051")
+    # oconnect("localhost:50051")
+    oconnect("59.77.18.8:50051")
     for i in range(10):
         response = oask(np.random.rand(4, 256, 3))
         print(response.shape)

@@ -3,6 +3,7 @@ syntax = "proto3";
 
 service OService {
   rpc Ask (ORequest) returns (OReply) {}
+  rpc Sync (ORequest) returns (OReply) {}
 }
 
 message ORequest {

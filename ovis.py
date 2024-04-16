@@ -20,6 +20,7 @@ syntax = "proto3";
 
 service OService {
   rpc Ask (ORequest) returns (OReply) {}
+  rpc Sync (ORequest) returns (OReply) {}
 }
 
 message ORequest {
@@ -209,7 +210,7 @@ def opc_pair(*args):
 
 def osmpl(*args):
     global client
-    msg = {'pose': None, 'beta': None, 'trans': None, 'colors': None, 'id': None}
+    msg = {'pose': None, 'beta': None, 'trans': None, 'colors': None, 'id': None, 'rt': None}
     for arg in args:
         if isinstance(arg, str):
             assert msg['id'] is None, '参数中只能有一个字符串变量用于指示pointcloud的id!'
@@ -235,6 +236,10 @@ def osmpl(*args):
                 beta = arg.flatten().tolist()
                 assert msg['beta'] is None, '参数中只能有一个长度为10的数组类型用于指示smpl mesh的beta!'
                 msg['beta'] = beta
+            elif arg.size == 16:
+                rt = arg.reshape(4, 4).tolist()
+                assert msg['rt'] is None, '参数中只能有一个长度为4*4的数组类型用于指示smpl mesh的rt!'
+                msg['rt'] = rt
             elif arg.size == 72:
                 assert msg['pose'] is None, '参数中只能有一个长度为72数组类型用于指示smpl mesh的pose!'
                 msg['pose'] = arg.flatten().tolist()
@@ -252,11 +257,12 @@ def osmpl(*args):
     
     oask({'func':'add_smpl_mesh', 'sid': '', **msg})
 
-
 def owait(delay=0):
     import time
     t1 = time.time()
-    oask({'func':'flash'})
+    global channel
+    stub = ogrpc_pb2_grpc.OServiceStub(channel)
+    stub.Sync(ogrpc_pb2.ORequest(pkl=pickle.dumps('')))
     delay -= time.time() - t1
     if delay > 0:
         time.sleep(delay)
@@ -275,13 +281,20 @@ def ofocus():
 def test():
     from time import time
     oconnect("localhost:50051")
-    for i in range(30):
+    # oconnect("59.77.18.8:50051")
+    for i in range(100):
         #opc(np.random.rand(10, 3), 'pc1')
         # oask({'pc': np.random.rand(10, 3)})
+        # result = oask([{'pid': i, 'frame': np.random.rand(256, 3).astype('float16')} for i in range(4)])
         # oask({'pc': np.random.rand(1, 3)})
-        osmpl(np.random.rand(72), 'smpl')
+        # owait()
+        
+        # opc(np.random.rand(100000, 3), 'pc1')
+        # osmpl(np.random.rand(72), 'smpl')
         owait()
-        #osmpl(np.random.rand(72), 'smpl')
+        osmpl(np.random.rand(72), 'smpl1')
+        osmpl(np.random.rand(72), 'smpl2', (2, 0, 0))
+        osmpl(np.random.rand(72), 'smpl3', (1, 0, 0))
     oclose()
 
 

@@ -1,15 +1,19 @@
 # Define the path to the text file
+from collections import defaultdict
+import pickle
 import sys
 import threading
 import os
 from typing import List, Tuple
 from time import time, sleep, localtime, strftime
 
+from multiprocessing import Process, Queue, Event
+
 
 def get_extract_ip():
     import socket
-    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
+        st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         st.connect(('10.255.255.255', 1))
         IP = st.getsockname()[0]
     except Exception:
@@ -26,17 +30,8 @@ import colorsys
 import numpy as np
 import open3d as o3d
 
-vis = o3d.visualization.Visualizer()
-vis.create_window(width=1024, height=1024)
 
-
-opt = vis.get_render_option()
-# opt.background_color = np.asarray([43., 43., 43.]) / 255.
-opt.background_color = np.asarray([255., 255., 255.]) / 255.
-# vis.get_render_option().point_size = 15.
-
-
-
+vis = None
 id_to_geometry = {}
 
 def add_geometry(id, geometry, reset_bounding_box=True):
@@ -65,25 +60,9 @@ def add_pc(sid, id, points, colors=None):
 
     add_geometry(id, pointcloud)
 
-from smpl import SMPL
+
 import torch
-smpl = SMPL()
-
-from config import SMPL_FILE
-import pickle
-with open(SMPL_FILE, 'rb') as f:
-    smpl_model = pickle.load(f, encoding='iso-8859-1')
-    face_index = smpl_model['f'].astype(int)
-
-def add_smpl_pc(sid, id, pose, beta=None, trans=None):
-    if beta is None:
-        beta = torch.zeros((10,))
-    if trans is None:
-        trans = torch.zeros((1, 3))
-    v = smpl(torch.from_numpy(np.array(pose)).float().view(1, 72),
-             torch.from_numpy(np.array(beta)).float().view(1, 10)).squeeze()
-    v += torch.from_numpy(np.array(trans)).float().view(1, 3)
-    add_pc(sid, id, v.tolist(), None)
+smpl, face_index = None, None
 
 def add_coordinate(sid, id, origin, size):
     axis_pcd = id_to_geometry[id] if id in id_to_geometry else \
@@ -91,23 +70,27 @@ def add_coordinate(sid, id, origin, size):
 
     add_geometry(id, axis_pcd, reset_bounding_box=False)
 
-def add_smpl_mesh(sid, id, pose, beta=None, trans=None, colors=None):
+def add_smpl_mesh(sid, id, pose=None, beta=None, trans=None, colors=None, rt=None, v=None):
     if beta is None:
         beta = torch.zeros((10,))
     if trans is None:
         trans = torch.zeros((1, 3))
-    from time import time
-    t0 = time()
-    v = smpl(torch.from_numpy(np.array(pose)).float().view(1, 72),
-             torch.from_numpy(np.array(beta)).float().view(1, 10)).squeeze()
-    v += torch.from_numpy(np.array(trans)).float().view(1, 3)
+    if v is None:
+        v = smpl(torch.from_numpy(np.array(pose)).float().view(1, 72),
+                torch.from_numpy(np.array(beta)).float().view(1, 10)).squeeze()
+        v += torch.from_numpy(np.array(trans)).float().view(1, 3)
+
+        v = v.numpy()
+
+    if rt is not None:
+        v = affine(v, np.array(rt, dtype='float16').reshape(4, 4))
 
     if id in id_to_geometry:
         m = id_to_geometry[id]
     else:
         m = o3d.geometry.TriangleMesh()
 
-    v = v.numpy().astype('float64') #一行代码提速1000倍
+    v = v.astype('float64') #一行代码提速1000倍
     m.vertices = o3d.utility.Vector3dVector(v)
     m.triangles = o3d.utility.Vector3iVector(face_index)
     m.compute_vertex_normals()
@@ -187,23 +170,6 @@ def affine(X, matrix):
     res = np.dot(matrix, res).T
     return res[..., :-1]
 
-def add_smpl_mesh_w_rt(sid, id, pose, rt):
-    beta = torch.zeros((10,))
-    v = smpl(torch.from_numpy(np.array(pose)).float().view(1, 72),
-             torch.from_numpy(np.array(beta)).float().view(1, 10)).squeeze()
-
-    v = affine(v, np.array(rt).reshape(4, 4))
-
-    if id in id_to_geometry:
-        m = id_to_geometry[id]
-    else:
-        m = o3d.geometry.TriangleMesh()
-
-    m.vertices = o3d.utility.Vector3dVector(v)
-    m.triangles = o3d.utility.Vector3iVector(face_index)
-    m.compute_vertex_normals()
-    add_geometry(id, m)
-
 def draw_bbox_3d(sid, id, 
                        bbox_3d,
                        bbox_color: List[float] = (0, 1, 0),
@@ -280,55 +246,96 @@ import grpc
 import ogrpc_pb2
 import ogrpc_pb2_grpc
 
-import queue
-global_events_quene = queue.Queue() 
-
 class OService(ogrpc_pb2_grpc.OServiceServicer):
+    def __init__(self, q):
+        self.q = q
+
     def Ask(self, request, context):
-        global global_events_quene
-        kwargs = pickle.loads(request.pkl)
-        if kwargs['func'] == 'flash':
-            while not global_events_quene.empty():
-                sleep(0.001)
-        else:
-            global_events_quene.put(kwargs)
+        self.q.put(request.pkl)
         return ogrpc_pb2.OReply(pkl=pickle.dumps(''))
 
-def serve():
+    def Sync(self, request, context):
+        while not self.q.empty():
+            sleep(0.001)
+        return ogrpc_pb2.OReply(pkl=pickle.dumps(''))
+
+def serve(q):
     port = "50051"
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    ogrpc_pb2_grpc.add_OServiceServicer_to_server(OService(), server)
+    ogrpc_pb2_grpc.add_OServiceServicer_to_server(OService(q), server)
     server.add_insecure_port("[::]:" + port)
     server.start()
     print("Server started, listening on " + port)
     server.wait_for_termination()
 
 
-server_thread = threading.Thread(target=serve)  
-server_thread.start()  
-
-
 # @profile
 def vis_update():
+    events_q = Queue()  
+    grpc_proc = Process(target=serve, args=(events_q,))  
+    print("Start gRPC Server... ")
+    grpc_proc.start()  
+    
+    global vis
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(width=1024, height=1024)
+
+    opt = vis.get_render_option()
+    # opt.background_color = np.asarray([43., 43., 43.]) / 255.
+    opt.background_color = np.asarray([255., 255., 255.]) / 255.
+    # vis.get_render_option().point_size = 15.
+
+    global smpl, face_index
+    from smpl import SMPL
+    smpl = SMPL()
+
+    from config import SMPL_FILE
+    import pickle
+    with open(SMPL_FILE, 'rb') as f:
+        smpl_model = pickle.load(f, encoding='iso-8859-1')
+        face_index = smpl_model['f'].astype(int)
+
+
+    add_coordinate(None, 'default_coordinate', [0, 0, 0], 1)
+    focus(None)
+
     frame_i = 0
-    while(True):
+    running_flag = True
+    while running_flag:
         frame_i += 1
-        t0 = time()
-        flag_poll_events = False
-        while not global_events_quene.empty():
-            flag_poll_events = True
-            kwargs = global_events_quene.get()
-            try:
-                func = eval(kwargs.pop('func'))
-                func(**kwargs)
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-            
-            # break #一次只执行一个
         
-        if flag_poll_events or frame_i % 5 == 0:
-            vis.poll_events()
+        t0 = time()
+        func_call = defaultdict(list)
+        while not events_q.empty():
+            pkl = events_q.get()
+            kwargs = pickle.loads(pkl)
+            func_call[kwargs.pop('func')].append(kwargs)
+        
+        # func_call = {'add_smpl_mesh':[{'pose':np.zeros(72,), 'id': 'smpl1'}, {'pose':np.zeros(72,), 'id': 'smpl1'}]}
+
+        if 'add_smpl_mesh' in func_call:
+            batch_pose = [kwargs['pose'] for kwargs in func_call['add_smpl_mesh'] if 'v' not in kwargs]
+            batch_beta = [kwargs['beta'] if 'beta' in kwargs and kwargs['beta'] else np.zeros((10,))  for kwargs in func_call['add_smpl_mesh'] if 'v' not in kwargs]
+            batch_trans = [kwargs['trans'] if 'trans' in kwargs and kwargs['trans'] else np.zeros((3,))  for kwargs in func_call['add_smpl_mesh'] if 'v' not in kwargs]
+            batch_v = smpl(torch.from_numpy(np.array(batch_pose)).float().view(-1, 72),
+                torch.from_numpy(np.array(batch_beta)).float().view(-1, 10))
+            batch_v += torch.from_numpy(np.array(batch_trans)).float().view(-1, 1, 3)
+
+            batch_v = batch_v.numpy()
+
+            for kwargs, v in zip([e for e in func_call['add_smpl_mesh'] if 'v' not in e], batch_v):
+                kwargs['v'] = v
+
+        for func_name, kwargs_list in func_call.items():
+            for kwargs in kwargs_list:
+                try:
+                    func = eval(func_name)
+                    func(**kwargs)
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+
+        running_flag = vis.poll_events()
         vis.update_renderer()
         
         duration_t = time() - t0
@@ -337,5 +344,12 @@ def vis_update():
         delta_t = 0.01 - duration_t
         if delta_t > 0:
             sleep(delta_t)
+    
+    
+    print("Terminating child process...")  
+    grpc_proc.terminate()  # 强制结束子进程  
+    grpc_proc.join()  # 等待子进程退出
 
-vis_update()
+
+if __name__ == '__main__':
+    vis_update()

@@ -11,3 +11,9 @@ data/smpl_T_pose.ply
 test2.py
 test3.py
 test3.py.lprof
+bg_voxel_grid.ply
+LiDARCapLight/cluster_and_trace.py
+LiDARCapLight/inference_lidarcap.py
+LiDARCapLight/pcd_for_cluster_and_trace.pcd
+LiDARCapLight/read_pcd_from_ouster.py
+LiDARCapLight/test_parse_pcd_data.py
